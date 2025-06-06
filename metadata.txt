@@ -1,0 +1,30 @@
+[general]
+name=Grid Index
+# Setting a more modern, stable minimum version
+qgisMinimumVersion=3.22
+description=This plugin generates a grid of rectangular polygons for map book page indexing.
+version=0.1
+author=Kapil Dev Adhiakri
+email=kapildevadk@gmail.com
+# Revised 'about' to match current functionality
+about=This plugin creates a grid of rectangular polygons for map book page indexing. It can create a full grid or one restricted to areas that intersect a chosen feature layer. The output includes a sequential page number and a grid-style name (e.g., A1, B2) for each page.
+
+tracker=https://github.com/Kapildev2019/Grid-Index/issues
+repository=https://github.com/Kapildev2019/Grid-Index
+homepage=https://github.com/Kapildev2019/Grid-Index
+hasProcessingProvider=yes
+icon=icon.png
+
+# More descriptive tags for better discoverability
+tags=grid, cartography, map series, atlas, index, vector, creation
+
+# This is a new plugin, so 'experimental' is appropriate
+experimental=True
+
+# The plugin is not deprecated
+deprecated=False
+
+# This Processing algorithm is compatible with QGIS Server
+server=True
+
+# plugin_dependencies=
