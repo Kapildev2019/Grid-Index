@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+
 """
 /***************************************************************************
  gridindex
@@ -19,21 +20,41 @@
  *   (at your option) any later version.                                   *
  *                                                                         *
  ***************************************************************************/
- This script initializes the plugin, making it known to QGIS.
 """
 
 __author__ = 'Kapildev Adhikari'
 __date__ = '2025-06-07'
 __copyright__ = '(C) 2025 by Kapildev Adhikari'
 
+# This will get replaced with a git SHA1 when you do a git archive
 
-# noinspection PyPep8Naming
-def classFactory(iface):  # pylint: disable=invalid-name
-    """Load gridindex class from file gridindex.
+__revision__ = '$Format:%H$'
 
-    :param iface: A QGIS interface instance.
-    :type iface: QgsInterface
-    """
-    #
-    from .grid_index import gridindexPlugin
-    return gridindexPlugin()
+import os
+import sys
+import inspect
+
+from qgis.core import QgsProcessingAlgorithm, QgsApplication
+from .grid_index_provider import gridindexProvider
+
+cmd_folder = os.path.split(inspect.getfile(inspect.currentframe()))[0]
+
+if cmd_folder not in sys.path:
+    sys.path.insert(0, cmd_folder)
+
+
+class gridindexPlugin(object):
+
+    def __init__(self):
+        self.provider = None
+
+    def initProcessing(self):
+        """Init Processing provider for QGIS >= 3.8."""
+        self.provider = gridindexProvider()
+        QgsApplication.processingRegistry().addProvider(self.provider)
+
+    def initGui(self):
+        self.initProcessing()
+
+    def unload(self):
+        QgsApplication.processingRegistry().removeProvider(self.provider)
