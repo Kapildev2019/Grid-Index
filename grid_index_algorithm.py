@@ -48,7 +48,9 @@ from qgis.core import (QgsProcessing,
                        QgsSpatialIndex,
                        QgsProject,
                        QgsProcessingException,
-                       QgsFeatureRequest)
+                       QgsFeatureRequest,
+                       QgsCoordinateReferenceSystem,
+                       QgsCoordinateTransform)
 from qgis.PyQt.QtGui import QIcon
 import os
 
@@ -81,7 +83,7 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterDistance(
                 self.CELL_WIDTH,
-                self.tr('Grid Cell Width'),
+                self.tr('Grid Cell Width (in layer units, or meters for geographic CRS)'),
                 parentParameterName=self.INPUT_LAYER,
                 defaultValue=1000.0
             )
@@ -90,7 +92,7 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterDistance(
                 self.CELL_HEIGHT,
-                self.tr('Grid Cell Height'),
+                self.tr('Grid Cell Height (in layer units, or meters for geographic CRS)'),
                 parentParameterName=self.INPUT_LAYER,
                 defaultValue=1000.0
             )
@@ -159,8 +161,29 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
         if sink is None:
             raise QgsProcessingException(self.invalidSinkError(parameters, self.OUTPUT))
 
-        # 3. Get the extent and calculate grid dimensions
+        # --- MODIFICATION START: Handle Geographic CRS ---
+        source_crs = source.sourceCrs()
         extent = source.sourceExtent()
+        is_geographic = source_crs.isGeographic()
+        transform_to_calc = None
+        transform_to_source = None
+
+        if is_geographic:
+            feedback.pushInfo(f"Geographic CRS '{source_crs.authid()}' detected. Grid will be calculated in meters.")
+            # Use a global projected CRS for calculations, e.g., Web Mercator (EPSG:3857)
+            # This ensures that cell width/height are treated as meters.
+            calc_crs = QgsCoordinateReferenceSystem('EPSG:3857')
+            if not calc_crs.isValid():
+                raise QgsProcessingException("Could not create calculation CRS (EPSG:3857).")
+
+            transform_to_calc = QgsCoordinateTransform(source_crs, calc_crs, QgsProject.instance())
+            transform_to_source = QgsCoordinateTransform(calc_crs, source_crs, QgsProject.instance())
+            
+            # Reproject the source extent to the calculation CRS
+            extent = transform_to_calc.transform(extent)
+        # --- MODIFICATION END ---
+            
+        # 3. Get the extent and calculate grid dimensions
         origin_x = extent.xMinimum()
         origin_y = extent.yMinimum()
 
@@ -178,7 +201,7 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
             num_cols = math.ceil(extent.width() / cell_width)
             feedback.pushInfo(f"Calculated number of columns: {num_cols}")
         
-        # 4. Build spatial index for fast intersection checks
+        # 4. Build spatial index for fast intersection checks (always on original layer)
         feedback.pushInfo("Building spatial index for input layer...")
         spatial_index = QgsSpatialIndex(source.getFeatures())
         
@@ -202,11 +225,7 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
         # This loop iterates through rows from TOP to BOTTOM
         for r in range(num_rows - 1, -1, -1):
             
-            # --- MODIFICATION START ---
-            # Reset the column name counter for each new row.
-            # This ensures numbering is sequential for created cells within a row (e.g., B1, B2, B3...).
             col_name_counter = 1
-            # --- MODIFICATION END ---
             
             # This loop iterates through columns from LEFT to RIGHT
             for c in range(num_cols):
@@ -216,21 +235,35 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
                 current_feature_index += 1
                 feedback.setProgress(int((current_feature_index / total_potential_features) * 100))
                 
+                # --- MODIFICATION START: Calculate cell in projected space ---
                 min_x = origin_x + (c * cell_width)
                 min_y = origin_y + (r * cell_height)
-                cell_rect = QgsRectangle(min_x, min_y, min_x + cell_width, min_y + cell_height)
+                # This rectangle is always in a projected CRS (either original or EPSG:3857)
+                calc_rect = QgsRectangle(min_x, min_y, min_x + cell_width, min_y + cell_height)
+
+                # The geometry to be saved must be in the source CRS.
+                # The rectangle used for querying the index must also be in the source CRS.
+                query_rect = calc_rect
+                cell_geom = QgsGeometry.fromRect(calc_rect)
+
+                if is_geographic:
+                    # Reproject the calculated cell back to the original geographic CRS
+                    query_rect = transform_to_source.transform(calc_rect)
+                    cell_geom.transform(transform_to_source)
+                # --- MODIFICATION END ---
                 
-                cell_geom = QgsGeometry.fromRect(cell_rect)
-                
-                candidate_ids = spatial_index.intersects(cell_rect)
+                # Use the (potentially reprojected) query rectangle to find candidates
+                candidate_ids = spatial_index.intersects(query_rect)
                 
                 found_intersection = False
                 if candidate_ids:
                     request = QgsFeatureRequest()
+                    # Iterate through features in the original layer (in original CRS)
                     for feat_id in candidate_ids:
                         request.setFilterFid(feat_id)
                         input_feat = next(source.getFeatures(request))
                         
+                        # Intersect the reprojected cell geometry with the original feature geometry
                         if cell_geom.intersects(input_feat.geometry()):
                             found_intersection = True
                             break
@@ -242,32 +275,36 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
                     top_down_row_index = (num_rows - 1) - r
                     row_letter = get_row_label(top_down_row_index)
                     
-                    # --- MODIFICATION START ---
-                    # Use the new row-specific counter for the name, not the grid's column index 'c'
                     page_name = f"{row_letter}{col_name_counter}"
-                    # --- MODIFICATION END ---
                     
                     feat.setAttributes([page_counter, page_name])
                     sink.addFeature(feat, QgsFeatureSink.FastInsert)
                     
-                    # Increment both counters now that a feature has been created
                     page_counter += 1
-                    col_name_counter += 1 # This will be used for the next valid cell in THIS row
+                    col_name_counter += 1
 
         return {self.OUTPUT: dest_id}
 
     def description(self):
         """
         Returns a detailed description of the algorithm.
-        This text will appear in the help panel of the processing tool dialog.
         """
         return self.tr(
             """
             <p>This algorithm creates a grid of rectangular polygon features, designed for creating a map book or atlas index.</p>
             <p>The grid is generated over the full extent of a required <b>Input Layer</b>. However, only grid cells that actually intersect with the features of the input layer will be saved in the final output.</p>
+            
+            <p><b><u>Coordinate Reference System (CRS) Handling:</u></b></p>
+            <p>The tool works with both projected (e.g., UTM) and geographic (e.g., WGS 84) coordinate systems.</p>
+            <ul>
+                <li>If the input layer has a <b>projected CRS</b>, the cell width and height are interpreted in the layer's native units (e.g., meters, feet).</li>
+                <li>If the input layer has a <b>geographic CRS</b> (latitude/longitude), the grid calculations are performed in a temporary projected system (EPSG:3857). This means you should <b>always specify the cell width and height in meters</b>, regardless of the input CRS. The final grid is correctly reprojected back to the original geographic CRS.</li>
+            </ul>
+
             <p><b><u>Grid Dimensions:</u></b></p>
-            <p>The size of each grid cell is defined by the <b>Grid Cell Width</b> and <b>Grid Cell Height</b> parameters, which are specified in the units of the input layer's coordinate reference system (CRS).</p>
+            <p>The size of each grid cell is defined by the <b>Grid Cell Width</b> and <b>Grid Cell Height</b> parameters.</p>
             <p>You can optionally override the automatic calculation of the grid dimensions by providing a specific <b>Number of rows</b> and/or <b>Number of columns</b>. If these are left as 0, the tool will calculate them automatically based on the input layer's extent and the specified cell size.</p>
+            
             <p><b><u>Output Attributes:</u></b></p>
             <p>The output grid layer will contain two attribute fields:</p>
             <ul>
@@ -296,4 +333,6 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
         return gridindexAlgorithm()
     
     def icon(self):
+        # The icon path needs to be correct relative to the plugin's main file.
+        # This assumes the icon is in the same directory as the script file.
         return QIcon(os.path.join(os.path.dirname(__file__), 'icon.png'))
