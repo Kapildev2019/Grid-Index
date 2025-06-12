@@ -2,62 +2,49 @@
 
 # This file should be included when you package your plugin.
 
-[general]
 # Mandatory items:
+
+[general]
 name=Grid Index
-# Your plugin should run on modern LTR versions of QGIS. 3.16 is a good baseline.
 qgisMinimumVersion=3.16
-# A more powerful and accurate one-sentence description.
-description=Creates a powerful, cartographically-aware grid index for map series and atlases with advanced labeling options.
-# You MUST increment the version number to release an update. 1.0 is appropriate for this major update.
-version=1.0
+description=Creates a cartographically-aware grid index for map series and atlases with advanced labeling options.
+version=1.1.0
 author=Kapildev Adhikari
 email=kapildevadk@gmail.com
-# Ensure the 'LICENSE' file in your folder corresponds to GPL v3.
 licence=GPL3
 
-# A detailed 'about' section that showcases all the features you built.
-about=This plugin creates a highly customizable grid of rectangular polygons for map book and atlas page indexing.
+about=This plugin creates a highly customizable grid of rectangular polygons for map book and atlas page indexing. Supports vector (point, line, polygon). Advanced labeling and numbering controls: Choose which corner of the grid to start labeling from (Top-Left, Top-Right, etc.). This affects both the sequential PageNumber and the PageName. Option to use absolute grid positions for names (e.g., C5 is always in the 5th column) or sequential names within each row. Create custom-sized grids or override dimensions by specifying the number of rows and columns.
 
-Key Features:
-*   Generates a grid over the full extent of an Intersection Layer.
-*   Supports vector (point, line, polygon) and raster layers for intersection.
-*   Intelligently handles Coordinate Reference Systems (CRS):
-    *   For projected layers, allows specifying cell size in any supported distance unit (meters, feet, etc.).
-    *   For geographic layers (e.g., WGS 84), it automatically determines the best projected CRS for calculation to avoid distortion, while treating your input as meters.
-*   Advanced labeling and numbering controls:
-    *   Choose which corner of the grid to start labeling from (Top-Left, Top-Right, etc.). This affects both the sequential PageNumber and the PageName.
-    *   Option to use absolute grid positions for names (e.g., C5 is always in the 5th column) or sequential names within each row.
-*   Create custom-sized grids or override dimensions by specifying the number of rows and columns.
-
-# Recommended items:
-hasProcessingProvider=yes
-
-# It's a very good practice to include a changelog.
-changelog=
-Version 1.0 (2024-xx-xx):
-- Complete overhaul of the tool's logic and user interface.
-- Added support for both projected and geographic (WGS 84) coordinate systems with automatic reprojection.
-- Added support for raster layers as an intersection layer.
-- Added advanced options for choosing the labeling start corner (Top-Left, Top-Right, Bottom-Left, Bottom-Right).
-- Added advanced option for using absolute or sequential grid naming.
-- Simplified UI by removing the manual extent parameter; the grid is now always based on the intersection layer's extent.
-
-[links]
-# Grouping these links is a modern best practice.
-homepage=https://github.com/Kapildev2019/Grid-Index
 tracker=https://github.com/Kapildev2019/Grid-Index/issues
 repository=https://github.com/Kapildev2019/Grid-Index
+# End of mandatory metadata
 
-[tags]
-# Added more tags for better discoverability.
-grid, cartography, map series, atlas, index, map index, index feature
+# Recommended items:
 
-[ui-metadata]
-# These are standard for modern plugins.
-category=Analysis
+hasProcessingProvider=yes
+
+# Uncomment the following line and add your changelog:
+# changelog=Enhanced features added
+
+# Updated tags for better discoverability.
+tags=grid, cartography, map series, atlas, index, map index, index feature, labeling, page, vector
+
+homepage=https://github.com/Kapildev2019/Grid-Index
+category=Plugins
 icon=icon.png
-# Keep it experimental for the first major release until you get user feedback.
+# experimental flag
 experimental=False
+
+# deprecated flag (applies to the whole plugin, not just a single version)
 deprecated=False
+
+# Since QGIS 3.8, a comma separated list of plugins to be installed
+# (or upgraded) can be specified.
+# Check the documentation for more information.
+# plugin_dependencies=
+
+Category of the plugin: Raster, Vector, Database or Web
+# category=
+
+# If the plugin can run on QGIS Server.
 server=False
