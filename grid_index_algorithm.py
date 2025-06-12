@@ -35,9 +35,11 @@ from qgis.PyQt.QtCore import QCoreApplication, QVariant
 from qgis.core import (QgsProcessing,
                        QgsFeatureSink,
                        QgsProcessingAlgorithm,
-                       QgsProcessingParameterFeatureSource,
+                       QgsProcessingParameterMapLayer,
                        QgsProcessingParameterFeatureSink,
                        QgsProcessingParameterDistance,
+                       QgsProcessingParameterEnum,
+                       QgsProcessingParameterBoolean,
                        QgsProcessingParameterNumber,
                        QgsRectangle,
                        QgsGeometry,
@@ -49,6 +51,8 @@ from qgis.core import (QgsProcessing,
                        QgsProject,
                        QgsProcessingException,
                        QgsFeatureRequest,
+                       QgsVectorLayer,
+                       QgsUnitTypes,
                        QgsCoordinateReferenceSystem,
                        QgsCoordinateTransform)
 from qgis.PyQt.QtGui import QIcon
@@ -57,13 +61,14 @@ import os
 
 class gridindexAlgorithm(QgsProcessingAlgorithm):
     """
-    This is a simplified algorithm to create an intersecting grid index, with optional overrides for grid dimensions.
+    This algorithm creates a grid index with advanced labeling and ordering options.
     """
 
-    # Parameter definitions
     INPUT_LAYER = 'INPUT_LAYER'
     CELL_WIDTH = 'CELL_WIDTH'
     CELL_HEIGHT = 'CELL_HEIGHT'
+    USE_ABSOLUTE_NAMING = 'USE_ABSOLUTE_NAMING'
+    LABEL_ORIGIN = 'LABEL_ORIGIN'
     NUM_ROWS = 'NUM_ROWS'
     NUM_COLS = 'NUM_COLS'
     START_PAGE = 'START_PAGE'
@@ -73,266 +78,251 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
         """Define the parameters for the tool."""
         
         self.addParameter(
-            QgsProcessingParameterFeatureSource(
-                self.INPUT_LAYER,
-                self.tr('Input Layer (Area of Interest)'),
-                [QgsProcessing.TypeVectorPolygon]
-            )
-        )
-
-        self.addParameter(
-            QgsProcessingParameterDistance(
-                self.CELL_WIDTH,
-                self.tr('Grid Cell Width (in layer units, or meters for geographic CRS)'),
-                parentParameterName=self.INPUT_LAYER,
-                defaultValue=1000.0
+            QgsProcessingParameterMapLayer(
+                self.INPUT_LAYER, self.tr('Intersection Layer'),
+                [QgsProcessing.TypeVector, QgsProcessing.TypeRaster]
             )
         )
         
         self.addParameter(
             QgsProcessingParameterDistance(
-                self.CELL_HEIGHT,
-                self.tr('Grid Cell Height (in layer units, or meters for geographic CRS)'),
-                parentParameterName=self.INPUT_LAYER,
-                defaultValue=1000.0
+                self.CELL_WIDTH, self.tr('Grid Cell Width'),
+                parentParameterName=self.INPUT_LAYER, defaultValue=1000.0, optional=False
+            )
+        )
+        
+        self.addParameter(
+            QgsProcessingParameterDistance(
+                self.CELL_HEIGHT, self.tr('Grid Cell Height'),
+                parentParameterName=self.INPUT_LAYER, defaultValue=1000.0, optional=False
+            )
+        )
+
+        self.addParameter(
+            QgsProcessingParameterBoolean(
+                self.USE_ABSOLUTE_NAMING,
+                self.tr('Use absolute grid position for Page Names'),
+                defaultValue=False
+            )
+        )
+        self.parameterDefinition(self.USE_ABSOLUTE_NAMING).setHelp(
+            self.tr("If checked, names are based on the overall grid column (e.g., C5). If unchecked, they are numbered sequentially within each row (e.g., C1, C2...).")
+        )
+        
+        self.addParameter(
+            QgsProcessingParameterEnum(
+                self.LABEL_ORIGIN,
+                self.tr('Labeling starts from'),
+                options=['Top-Left', 'Top-Right', 'Bottom-Left', 'Bottom-Right'],
+                defaultValue=0
+            )
+        )
+        self.parameterDefinition(self.LABEL_ORIGIN).setHelp(
+            self.tr("Controls which corner of the grid both the PageNumber and PageName sequences begin from.")
+        )
+
+        self.addParameter(
+            QgsProcessingParameterNumber(
+                self.NUM_ROWS, self.tr('Number of rows (optional override)'),
+                QgsProcessingParameterNumber.Integer, optional=True, defaultValue=0 
             )
         )
         
         self.addParameter(
             QgsProcessingParameterNumber(
-                self.NUM_ROWS,
-                self.tr('Number of rows (optional override)'),
-                QgsProcessingParameterNumber.Integer,
-                optional=True,
-                defaultValue=0 
+                self.NUM_COLS, self.tr('Number of columns (optional override)'),
+                QgsProcessingParameterNumber.Integer, optional=True, defaultValue=0 
             )
         )
-        self.parameterDefinitions()[-1].setHelp("Leave empty or 0 to auto-calculate from layer extent. Enter a value to override.")
-        
-        self.addParameter(
-            QgsProcessingParameterNumber(
-                self.NUM_COLS,
-                self.tr('Number of columns (optional override)'),
-                QgsProcessingParameterNumber.Integer,
-                optional=True,
-                defaultValue=0 
-            )
-        )
-        self.parameterDefinitions()[-1].setHelp("Leave empty or 0 to auto-calculate from layer extent. Enter a value to override.")
 
         self.addParameter(
             QgsProcessingParameterNumber(
-                self.START_PAGE,
-                self.tr('Starting page number'),
-                QgsProcessingParameterNumber.Integer,
-                optional=True,
-                defaultValue=1
+                self.START_PAGE, self.tr('Starting page number'),
+                QgsProcessingParameterNumber.Integer, optional=True, defaultValue=1
             )
         )
 
         self.addParameter(
-            QgsProcessingParameterFeatureSink(
-                self.OUTPUT,
-                self.tr('Output Grid Index')
-            )
+            QgsProcessingParameterFeatureSink(self.OUTPUT, self.tr('Output Grid Index'))
         )
-
+    
     def processAlgorithm(self, parameters, context, feedback):
-        # 1. Get parameters and input layer
-        source = self.parameterAsSource(parameters, self.INPUT_LAYER, context)
+        source = self.parameterAsLayer(parameters, self.INPUT_LAYER, context)
         if source is None:
             raise QgsProcessingException(self.invalidSourceError(parameters, self.INPUT_LAYER))
             
-        cell_width = self.parameterAsDouble(parameters, self.CELL_WIDTH, context)
-        cell_height = self.parameterAsDouble(parameters, self.CELL_HEIGHT, context)
-        
+        use_absolute_naming = self.parameterAsBoolean(parameters, self.USE_ABSOLUTE_NAMING, context)
+        label_origin_index = self.parameterAsEnum(parameters, self.LABEL_ORIGIN, context)
         num_rows_override = self.parameterAsInt(parameters, self.NUM_ROWS, context)
         num_cols_override = self.parameterAsInt(parameters, self.NUM_COLS, context)
         start_page = self.parameterAsInt(parameters, self.START_PAGE, context)
 
-        # 2. Prepare the output sink
+        source_crs = source.crs()
+        is_geographic = source_crs.isGeographic()
+        
+        cell_width, cell_height = 0.0, 0.0
+        calculation_crs = source_crs
+        calc_extent = source.extent()
+        
+        if is_geographic:
+            feedback.pushInfo("Geographic CRS detected. Auto-determining best projected CRS for calculations.")
+            center_point = calc_extent.center()
+            lon, lat = center_point.x(), center_point.y()
+            zone_number = int(math.floor((lon + 180) / 6) + 1)
+            epsg_code = 32600 + zone_number if lat >= 0 else 32700 + zone_number
+            calculation_crs = QgsCoordinateReferenceSystem(f"EPSG:{epsg_code}")
+            
+            if not calculation_crs.isValid():
+                raise QgsProcessingException(self.tr(f"Could not determine a suitable projected CRS (tried EPSG:{epsg_code})."))
+                
+            raw_width = parameters[self.CELL_WIDTH]
+            unit_width = parameters.get(self.CELL_WIDTH + '_UNIT', QgsUnitTypes.DistanceMeters)
+            cell_width = QgsUnitTypes.convertDistance(raw_width, unit_width, QgsUnitTypes.DistanceMeters)
+            raw_height = parameters[self.CELL_HEIGHT]
+            unit_height = parameters.get(self.CELL_HEIGHT + '_UNIT', QgsUnitTypes.DistanceMeters)
+            cell_height = QgsUnitTypes.convertDistance(raw_height, unit_height, QgsUnitTypes.DistanceMeters)
+
+            transform_to_calc = QgsCoordinateTransform(source_crs, calculation_crs, context.transformContext())
+            calc_extent = transform_to_calc.transform(source.extent())
+        else:
+            feedback.pushInfo("Projected CRS detected. Using layer units for calculation.")
+            cell_width = self.parameterAsDouble(parameters, self.CELL_WIDTH, context)
+            cell_height = self.parameterAsDouble(parameters, self.CELL_HEIGHT, context)
+
+        feedback.pushInfo(f"Calculations will be performed in {calculation_crs.authid()}")
+
         fields = QgsFields()
         fields.append(QgsField('PageNumber', QVariant.Int))
         fields.append(QgsField('PageName', QVariant.String))
+        (sink, dest_id) = self.parameterAsSink(parameters, self.OUTPUT, context, fields, QgsWkbTypes.Polygon, source_crs)
 
-        (sink, dest_id) = self.parameterAsSink(
-            parameters, self.OUTPUT, context, fields, QgsWkbTypes.Polygon, source.sourceCrs()
-        )
-        if sink is None:
-            raise QgsProcessingException(self.invalidSinkError(parameters, self.OUTPUT))
-
-        # --- MODIFICATION START: Handle Geographic CRS ---
-        source_crs = source.sourceCrs()
-        extent = source.sourceExtent()
-        is_geographic = source_crs.isGeographic()
-        transform_to_calc = None
-        transform_to_source = None
-
-        if is_geographic:
-            feedback.pushInfo(f"Geographic CRS '{source_crs.authid()}' detected. Grid will be calculated in meters.")
-            # Use a global projected CRS for calculations, e.g., Web Mercator (EPSG:3857)
-            # This ensures that cell width/height are treated as meters.
-            calc_crs = QgsCoordinateReferenceSystem('EPSG:3857')
-            if not calc_crs.isValid():
-                raise QgsProcessingException("Could not create calculation CRS (EPSG:3857).")
-
-            transform_to_calc = QgsCoordinateTransform(source_crs, calc_crs, QgsProject.instance())
-            transform_to_source = QgsCoordinateTransform(calc_crs, source_crs, QgsProject.instance())
-            
-            # Reproject the source extent to the calculation CRS
-            extent = transform_to_calc.transform(extent)
-        # --- MODIFICATION END ---
-            
-        # 3. Get the extent and calculate grid dimensions
-        origin_x = extent.xMinimum()
-        origin_y = extent.yMinimum()
-
-        if num_rows_override > 0:
-            num_rows = num_rows_override
-            feedback.pushInfo(f"Using user-provided number of rows: {num_rows}")
-        else:
-            num_rows = math.ceil(extent.height() / cell_height)
-            feedback.pushInfo(f"Calculated number of rows: {num_rows}")
-
-        if num_cols_override > 0:
-            num_cols = num_cols_override
-            feedback.pushInfo(f"Using user-provided number of columns: {num_cols}")
-        else:
-            num_cols = math.ceil(extent.width() / cell_width)
-            feedback.pushInfo(f"Calculated number of columns: {num_cols}")
+        origin_x, origin_y = calc_extent.xMinimum(), calc_extent.yMinimum()
+        num_rows = num_rows_override if num_rows_override > 0 else math.ceil(calc_extent.height() / cell_height)
+        num_cols = num_cols_override if num_cols_override > 0 else math.ceil(calc_extent.width() / cell_width)
+        feedback.pushInfo(f"Grid will have a maximum of {num_rows} rows and {num_cols} columns.")
         
-        # 4. Build spatial index for fast intersection checks (always on original layer)
-        feedback.pushInfo("Building spatial index for input layer...")
-        spatial_index = QgsSpatialIndex(source.getFeatures())
+        is_vector = isinstance(source, QgsVectorLayer)
+        spatial_index = QgsSpatialIndex(source.getFeatures()) if is_vector else None
         
-        # 5. Loop through the grid and create features
         page_counter = start_page
-        total_potential_features = num_rows * num_cols
-        current_feature_index = 0
-        
-        request = QgsFeatureRequest()
 
-        def get_row_label(n):
+        def get_row_label(row_index, total_rows):
+            # This function determines the letter based on whether we count from top or bottom
+            is_top_down = (label_origin_index == 0 or label_origin_index == 1)
+            effective_row = row_index if not is_top_down else (total_rows - 1) - row_index
+            
             label = ""
-            if n < 0: return ""
+            if effective_row < 0: return ""
             while True:
-                label = chr(n % 26 + 65) + label
-                n = n // 26 - 1
-                if n < 0:
+                label = chr(effective_row % 26 + 65) + label
+                effective_row = effective_row // 26 - 1
+                if effective_row < 0:
                     break
             return label
 
-        # This loop iterates through rows from TOP to BOTTOM
-        for r in range(num_rows - 1, -1, -1):
-            
-            col_name_counter = 1
-            
-            # This loop iterates through columns from LEFT to RIGHT
-            for c in range(num_cols):
-                if feedback.isCanceled():
-                    return {}
-                
-                current_feature_index += 1
-                feedback.setProgress(int((current_feature_index / total_potential_features) * 100))
-                
-                # --- MODIFICATION START: Calculate cell in projected space ---
-                min_x = origin_x + (c * cell_width)
-                min_y = origin_y + (r * cell_height)
-                # This rectangle is always in a projected CRS (either original or EPSG:3857)
-                calc_rect = QgsRectangle(min_x, min_y, min_x + cell_width, min_y + cell_height)
+        r_iterator, c_iterator = None, None
+        if label_origin_index == 0: # Top-Left
+            r_iterator = range(num_rows - 1, -1, -1)
+            c_iterator = range(num_cols)
+        elif label_origin_index == 1: # Top-Right
+            r_iterator = range(num_rows - 1, -1, -1)
+            c_iterator = range(num_cols - 1, -1, -1)
+        elif label_origin_index == 2: # Bottom-Left
+            r_iterator = range(num_rows)
+            c_iterator = range(num_cols)
+        elif label_origin_index == 3: # Bottom-Right
+            r_iterator = range(num_rows)
+            c_iterator = range(num_cols - 1, -1, -1)
+        
+        row_counters = {}
+        transform_to_source = QgsCoordinateTransform(calculation_crs, source_crs, context.transformContext())
 
-                # The geometry to be saved must be in the source CRS.
-                # The rectangle used for querying the index must also be in the source CRS.
-                query_rect = calc_rect
-                cell_geom = QgsGeometry.fromRect(calc_rect)
-
-                if is_geographic:
-                    # Reproject the calculated cell back to the original geographic CRS
-                    query_rect = transform_to_source.transform(calc_rect)
-                    cell_geom.transform(transform_to_source)
-                # --- MODIFICATION END ---
+        for r in r_iterator:
+            for c in c_iterator:
+                if feedback.isCanceled(): return {}
                 
-                # Use the (potentially reprojected) query rectangle to find candidates
-                candidate_ids = spatial_index.intersects(query_rect)
+                cell_rect_calc = QgsRectangle(origin_x + (c * cell_width), 
+                                              origin_y + (r * cell_height),
+                                              origin_x + ((c + 1) * cell_width),
+                                              origin_y + ((r + 1) * cell_height))
+                
+                cell_rect_source = transform_to_source.transform(cell_rect_calc) if is_geographic else cell_rect_calc
                 
                 found_intersection = False
-                if candidate_ids:
-                    request = QgsFeatureRequest()
-                    # Iterate through features in the original layer (in original CRS)
-                    for feat_id in candidate_ids:
-                        request.setFilterFid(feat_id)
-                        input_feat = next(source.getFeatures(request))
-                        
-                        # Intersect the reprojected cell geometry with the original feature geometry
-                        if cell_geom.intersects(input_feat.geometry()):
-                            found_intersection = True
-                            break
+                if is_vector:
+                    if spatial_index.intersects(cell_rect_source):
+                        for feat in source.getFeatures(QgsFeatureRequest().setFilterRect(cell_rect_source)):
+                            if feat.geometry().intersects(cell_rect_source):
+                                found_intersection = True
+                                break
+                else: # Raster
+                    if source.extent().intersects(cell_rect_source):
+                        found_intersection = True
                 
                 if found_intersection:
                     feat = QgsFeature(fields)
-                    feat.setGeometry(cell_geom)
-                    
-                    top_down_row_index = (num_rows - 1) - r
-                    row_letter = get_row_label(top_down_row_index)
-                    
-                    page_name = f"{row_letter}{col_name_counter}"
+                    feat.setGeometry(QgsGeometry.fromRect(cell_rect_source))
+
+                    # --- MODIFICATION START: Simplified and corrected labeling ---
+                    row_letter = get_row_label(r, num_rows)
+                    page_name = ""
+
+                    if use_absolute_naming:
+                        # Use the absolute column index (c) from the iterator
+                        page_name = f"{row_letter}{c + 1}"
+                    else:
+                        # Use a sequential counter for the current row
+                        # The key 'r' correctly groups by row regardless of iteration direction
+                        if r not in row_counters:
+                            # The first number depends on the column iteration direction
+                            row_counters[r] = 1 if c_iterator.start < c_iterator.stop else num_cols
+                        
+                        page_name = f"{row_letter}{row_counters[r]}"
+                        
+                        # Increment or decrement the counter based on direction
+                        if c_iterator.start < c_iterator.stop:
+                            row_counters[r] += 1
+                        else:
+                            row_counters[r] -= 1
                     
                     feat.setAttributes([page_counter, page_name])
-                    sink.addFeature(feat, QgsFeatureSink.FastInsert)
+                    # --- MODIFICATION END ---
                     
+                    sink.addFeature(feat, QgsFeatureSink.FastInsert)
                     page_counter += 1
-                    col_name_counter += 1
 
         return {self.OUTPUT: dest_id}
 
     def description(self):
-        """
-        Returns a detailed description of the algorithm.
-        """
         return self.tr(
             """
-            <p>This algorithm creates a grid of rectangular polygon features, designed for creating a map book or atlas index.</p>
-            <p>The grid is generated over the full extent of a required <b>Input Layer</b>. However, only grid cells that actually intersect with the features of the input layer will be saved in the final output.</p>
-            
-            <p><b><u>Coordinate Reference System (CRS) Handling:</u></b></p>
-            <p>The tool works with both projected (e.g., UTM) and geographic (e.g., WGS 84) coordinate systems.</p>
+            <p>This algorithm creates a grid of rectangular polygon features for a map book index with advanced labeling controls.</p>
+            <p><b>How it works:</b></p>
+            <ol>
+            <li>A grid is generated over the full extent of the selected <b>Intersection Layer</b>.</li>
+            <li>Only grid cells that intersect with the Intersection Layer are kept in the final output.</li>
+            </ol>
+            <p><b><u>CRS & Unit Handling:</u></b></p>
+            <p>This tool intelligently handles units. If your input layer has a geographic CRS (e.g., WGS 84), the tool automatically determines the best projected CRS for accurate, meter-based calculations. For projected layers, you can specify the cell size in any supported unit.</p>
+            <p><b><u>Naming and Ordering:</u></b></p>
             <ul>
-                <li>If the input layer has a <b>projected CRS</b>, the cell width and height are interpreted in the layer's native units (e.g., meters, feet).</li>
-                <li>If the input layer has a <b>geographic CRS</b> (latitude/longitude), the grid calculations are performed in a temporary projected system (EPSG:3857). This means you should <b>always specify the cell width and height in meters</b>, regardless of the input CRS. The final grid is correctly reprojected back to the original geographic CRS.</li>
-            </ul>
-
-            <p><b><u>Grid Dimensions:</u></b></p>
-            <p>The size of each grid cell is defined by the <b>Grid Cell Width</b> and <b>Grid Cell Height</b> parameters.</p>
-            <p>You can optionally override the automatic calculation of the grid dimensions by providing a specific <b>Number of rows</b> and/or <b>Number of columns</b>. If these are left as 0, the tool will calculate them automatically based on the input layer's extent and the specified cell size.</p>
-            
-            <p><b><u>Output Attributes:</u></b></p>
-            <p>The output grid layer will contain two attribute fields:</p>
-            <ul>
-                <li><b>PageNumber</b>: A sequential integer, starting from 1 (or the specified <b>Starting page number</b>).</li>
-                <li><b>PageName</b>: A grid-style label (e.g., A1, A2, B1...). The number increments sequentially for created cells within each row, starting from the top-left corner.</li>
+            <li><b>Use absolute grid position for Page Names:</b> When checked, the number in the name (e.g., the '5' in 'C5') corresponds to the grid's absolute column number. When unchecked, it's a sequential number for created cells within that row.</li>
+            <li><b>Labeling starts from:</b> Controls which corner of the grid both the PageNumber and PageName sequences begin from.</li>
             </ul>
             """
         )
 
     def name(self):
         return 'Grid Index'
-
     def displayName(self):
         return self.tr(self.name())
-
     def group(self):
         return ''
-
     def groupId(self):
         return ''
-
     def tr(self, string):
         return QCoreApplication.translate('Processing', string)
-
     def createInstance(self):
         return gridindexAlgorithm()
-    
     def icon(self):
-        # The icon path needs to be correct relative to the plugin's main file.
-        # This assumes the icon is in the same directory as the script file.
         return QIcon(os.path.join(os.path.dirname(__file__), 'icon.png'))
