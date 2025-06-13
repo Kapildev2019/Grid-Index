@@ -87,14 +87,14 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterDistance(
                 self.CELL_WIDTH, self.tr('Grid Cell Width'),
-                parentParameterName=self.INPUT_LAYER, defaultValue=1000.0, optional=False
+                parentParameterName=self.INPUT_LAYER, defaultValue=500.0, optional=False
             )
         )
         
         self.addParameter(
             QgsProcessingParameterDistance(
                 self.CELL_HEIGHT, self.tr('Grid Cell Height'),
-                parentParameterName=self.INPUT_LAYER, defaultValue=1000.0, optional=False
+                parentParameterName=self.INPUT_LAYER, defaultValue=500.0, optional=False
             )
         )
 
@@ -160,34 +160,20 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
         source_crs = source.crs()
         is_geographic = source_crs.isGeographic()
         
-        cell_width, cell_height = 0.0, 0.0
+        if is_geographic:
+            # --- MODIFICATION START: Halt execution for geographic CRS ---
+            raise QgsProcessingException(
+                self.tr("The input layer uses a geographic CRS (e.g., WGS 84). "
+                        "This plugin requires a projected CRS for accurate calculations. "
+                        "Please reproject your layer to a suitable projected CRS (e.g., UTM) and try again.")
+            )
+            # --- MODIFICATION END ---
+        
+        feedback.pushInfo("Projected CRS detected. Using layer units for calculation.")
+        cell_width = self.parameterAsDouble(parameters, self.CELL_WIDTH, context)
+        cell_height = self.parameterAsDouble(parameters, self.CELL_HEIGHT, context)
         calculation_crs = source_crs
         calc_extent = source.extent()
-        
-        if is_geographic:
-            feedback.pushInfo("Geographic CRS detected. Auto-determining best projected CRS for calculations.")
-            center_point = calc_extent.center()
-            lon, lat = center_point.x(), center_point.y()
-            zone_number = int(math.floor((lon + 180) / 6) + 1)
-            epsg_code = 32600 + zone_number if lat >= 0 else 32700 + zone_number
-            calculation_crs = QgsCoordinateReferenceSystem(f"EPSG:{epsg_code}")
-            
-            if not calculation_crs.isValid():
-                raise QgsProcessingException(self.tr(f"Could not determine a suitable projected CRS (tried EPSG:{epsg_code})."))
-                
-            raw_width = parameters[self.CELL_WIDTH]
-            unit_width = parameters.get(self.CELL_WIDTH + '_UNIT', QgsUnitTypes.DistanceMeters)
-            cell_width = QgsUnitTypes.convertDistance(raw_width, unit_width, QgsUnitTypes.DistanceMeters)
-            raw_height = parameters[self.CELL_HEIGHT]
-            unit_height = parameters.get(self.CELL_HEIGHT + '_UNIT', QgsUnitTypes.DistanceMeters)
-            cell_height = QgsUnitTypes.convertDistance(raw_height, unit_height, QgsUnitTypes.DistanceMeters)
-
-            transform_to_calc = QgsCoordinateTransform(source_crs, calculation_crs, context.transformContext())
-            calc_extent = transform_to_calc.transform(source.extent())
-        else:
-            feedback.pushInfo("Projected CRS detected. Using layer units for calculation.")
-            cell_width = self.parameterAsDouble(parameters, self.CELL_WIDTH, context)
-            cell_height = self.parameterAsDouble(parameters, self.CELL_HEIGHT, context)
 
         feedback.pushInfo(f"Calculations will be performed in {calculation_crs.authid()}")
 
@@ -207,7 +193,6 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
         page_counter = start_page
 
         def get_row_label(row_index, total_rows):
-            # This function determines the letter based on whether we count from top or bottom
             is_top_down = (label_origin_index == 0 or label_origin_index == 1)
             effective_row = row_index if not is_top_down else (total_rows - 1) - row_index
             
@@ -242,9 +227,9 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
                 if feedback.isCanceled(): return {}
                 
                 cell_rect_calc = QgsRectangle(origin_x + (c * cell_width), 
-                                              origin_y + (r * cell_height),
-                                              origin_x + ((c + 1) * cell_width),
-                                              origin_y + ((r + 1) * cell_height))
+                                            origin_y + (r * cell_height),
+                                            origin_x + ((c + 1) * cell_width),
+                                            origin_y + ((r + 1) * cell_height))
                 
                 cell_rect_source = transform_to_source.transform(cell_rect_calc) if is_geographic else cell_rect_calc
                 
@@ -263,30 +248,23 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
                     feat = QgsFeature(fields)
                     feat.setGeometry(QgsGeometry.fromRect(cell_rect_source))
 
-                    # --- MODIFICATION START: Simplified and corrected labeling ---
                     row_letter = get_row_label(r, num_rows)
                     page_name = ""
 
                     if use_absolute_naming:
-                        # Use the absolute column index (c) from the iterator
                         page_name = f"{row_letter}{c + 1}"
                     else:
-                        # Use a sequential counter for the current row
-                        # The key 'r' correctly groups by row regardless of iteration direction
                         if r not in row_counters:
-                            # The first number depends on the column iteration direction
                             row_counters[r] = 1 if c_iterator.start < c_iterator.stop else num_cols
                         
                         page_name = f"{row_letter}{row_counters[r]}"
                         
-                        # Increment or decrement the counter based on direction
                         if c_iterator.start < c_iterator.stop:
                             row_counters[r] += 1
                         else:
                             row_counters[r] -= 1
                     
                     feat.setAttributes([page_counter, page_name])
-                    # --- MODIFICATION END ---
                     
                     sink.addFeature(feat, QgsFeatureSink.FastInsert)
                     page_counter += 1
