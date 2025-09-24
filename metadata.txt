@@ -13,7 +13,7 @@ author=Kapildev Adhikari
 email=kapildevadk@gmail.com
 licence=GPL3
 
-about=This plugin creates a highly customizable grid of rectangular polygons for map book and atlas page indexing. Supports vector (point, line, polygon) and raster data with both projected and unprojected coordinate systems. Advanced labeling and numbering controls. Create custom-sized grids or override dimensions by specifying the number of rows and columns. Qt6 compatible.
+about=This plugin creates a highly customizable grid of rectangular polygons for map book and atlas page indexing. Supports vector (point, line, polygon) and raster data with both projected and geographic coordinate systems. Advanced labeling and numbering controls. Create custom-sized grids or override dimensions by specifying the number of rows and columns. Qt6 compatible.
 
 tracker=https://github.com/Kapildev2019/Grid-Index/issues
 repository=https://github.com/Kapildev2019/Grid-Index
