@@ -6,14 +6,14 @@
 
 [general]
 name=Grid Index
-qgisMinimumVersion=3.16
+qgisMinimumVersion=3.28
 description=Creates a cartographically-aware grid index for map series and atlases with advanced labeling options.
-version=0.2
+version=0.3
 author=Kapildev Adhikari
 email=kapildevadk@gmail.com
 licence=GPL3
 
-about=This plugin creates a highly customizable grid of rectangular polygons for map book and atlas page indexing. Supports vector (point, line, polygon). Advanced labeling and numbering controls. Create custom-sized grids or override dimensions by specifying the number of rows and columns.
+about=This plugin creates a highly customizable grid of rectangular polygons for map book and atlas page indexing. Supports vector (point, line, polygon) and raster data with both projected and unprojected coordinate systems. Advanced labeling and numbering controls. Create custom-sized grids or override dimensions by specifying the number of rows and columns. Qt6 compatible.
 
 tracker=https://github.com/Kapildev2019/Grid-Index/issues
 repository=https://github.com/Kapildev2019/Grid-Index
@@ -24,11 +24,12 @@ repository=https://github.com/Kapildev2019/Grid-Index
 hasProcessingProvider=yes
 
 # Uncomment the following line and add your changelog:
-changelog=0.2 Advanced labeling and numbering controls
+changelog=0.3 Qt6 compatibility, enhanced raster support with proper clipping for projected and unprojected data
+	0.2 Advanced labeling and numbering controls
 	0.1 Initial release
 
 # Updated tags for better discoverability.
-tags=processing, grid, cartography, map series, atlas, index, map index, index feature, labeling, page
+tags=processing, grid, cartography, map series, atlas, index, map index, index feature, labeling, page, raster, qt6
 
 homepage=https://github.com/Kapildev2019/Grid-Index
 category=Plugins

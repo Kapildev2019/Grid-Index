@@ -33,7 +33,7 @@ __revision__ = '$Format:%H$'
 from qgis.core import QgsProcessingProvider
 from qgis.PyQt.QtGui import QIcon
 import os
-from .grid_index_algorithm import gridindexAlgorithm
+from .gridindex_algorithm import gridindexAlgorithm
 
 
 class gridindexProvider(QgsProcessingProvider):

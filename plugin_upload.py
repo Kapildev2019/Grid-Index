@@ -10,7 +10,6 @@ import getpass
 import xmlrpc.client
 from optparse import OptionParser
 
-standard_library.install_aliases()
 
 # Configuration
 PROTOCOL = 'https'
