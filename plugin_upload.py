@@ -5,7 +5,7 @@
         git sha              : $TemplateVCSFormat
 """
 
-#import sys
+import sys
 #import getpass
 #import xmlrpc.client
 #from optparse import OptionParser
