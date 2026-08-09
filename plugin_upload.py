@@ -5,11 +5,16 @@
         git sha              : $TemplateVCSFormat
 """
 
-import sys
+#import sys
+#import getpass
+#import xmlrpc.client
+#from optparse import OptionParser
+
 import getpass
+from defusedxml import xmlrpc
+xmlrpc.monkey_patch()
 import xmlrpc.client
 from optparse import OptionParser
-
 
 # Configuration
 PROTOCOL = 'https'
