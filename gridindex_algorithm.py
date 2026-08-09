@@ -84,7 +84,7 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterMapLayer(
                 self.INPUT_LAYER, self.tr('Intersection Layer'),
-                [QgsProcessing.TypeVector, QgsProcessing.TypeRaster]
+                [QgsProcessing.SourceType.TypeVector, QgsProcessing.SourceType.TypeRaster]
             )
         )
         
@@ -128,21 +128,21 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.NUM_ROWS, self.tr('Number of rows (optional override)'),
-                type=QgsProcessingParameterNumber.Integer, optional=True, defaultValue=0 
+                type=QgsProcessingParameterNumber.Type.Integer, optional=True, defaultValue=0 
             )
         )
         
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.NUM_COLS, self.tr('Number of columns (optional override)'),
-                type=QgsProcessingParameterNumber.Integer, optional=True, defaultValue=0 
+                type=QgsProcessingParameterNumber.Type.Integer, optional=True, defaultValue=0 
             )
         )
 
         self.addParameter(
             QgsProcessingParameterNumber(
                 self.START_PAGE, self.tr('Starting page number'),
-                type=QgsProcessingParameterNumber.Integer, optional=True, defaultValue=1
+                type=QgsProcessingParameterNumber.Type.Integer, optional=True, defaultValue=1
             )
         )
 
@@ -183,7 +183,7 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
             
             # If the input is in degrees, convert to meters using approximate conversion
             # This is a rough approximation - 1 degree ≈ 111,320 meters at equator
-            if source_crs.mapUnits() == QgsUnitTypes.DistanceDegrees:
+            if source_crs.mapUnits() == QgsUnitTypes.DistanceUnit.DistanceDegrees:
                 if cell_width < 1:  # Assume it's in degrees if less than 1
                     cell_width *= 111320  # Convert degrees to meters
                 if cell_height < 1:
@@ -213,7 +213,7 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
             fields.append(QgsField('RasterCoverage', QVariant.Double))
             feedback.pushInfo(f"Raster layer detected with {source.bandCount()} bands")
         
-        (sink, dest_id) = self.parameterAsSink(parameters, self.OUTPUT, context, fields, QgsWkbTypes.Polygon, source_crs)
+        (sink, dest_id) = self.parameterAsSink(parameters, self.OUTPUT, context, fields, QgsWkbTypes.Type.Polygon, source_crs)
 
         origin_x, origin_y = calc_extent.xMinimum(), calc_extent.yMinimum()
         num_rows = num_rows_override if num_rows_override > 0 else math.ceil(calc_extent.height() / cell_height)
@@ -387,7 +387,7 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
                     else:
                         if r not in row_counters:
                             row_counters[r] = 1 if c_iterator.start < c_iterator.stop else num_cols
-                        
+                            
                         page_name = f"{row_letter}{row_counters[r]}"
                         
                         if c_iterator.start < c_iterator.stop:
@@ -407,7 +407,7 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
                     else:
                         feat.setAttributes([page_counter, page_name])
                     
-                    sink.addFeature(feat, QgsFeatureSink.FastInsert)
+                    sink.addFeature(feat, QgsFeatureSink.Flag.FastInsert)
                     page_counter += 1
 
         return {self.OUTPUT: dest_id}
@@ -422,12 +422,12 @@ class gridindexAlgorithm(QgsProcessingAlgorithm):
             <li>Only grid cells that intersect with the Intersection Layer are kept in the final output.</li>
             </ol>
             <p><b><u>CRS & Unit Handling:</u></b></p>
-            <p>This tool intelligently handles both projected and geographic coordinate systems. For geographic CRS (e.g., WGS 84), the tool automatically uses World Mercator projection for accurate calculations. For projected layers, you can specify the cell size in any supported unit.</p>
+            <p>This tool intelligently handles both projected and geographic coordinate systems. For geographic CRS (e.g., WGS 84), the tool automatically uses World Mercator projection for accur[...]
             <p><b><u>Enhanced Raster Support:</u></b></p>
             <p>The tool now provides enhanced support for raster layers, including band count and pixel size information in the output attributes.</p>
             <p><b><u>Naming and Ordering:</u></b></p>
             <ul>
-            <li><b>Use absolute grid position for Page Names:</b> When checked, the number in the name (e.g., the '5' in 'C5') corresponds to the grid's absolute column number. When unchecked, it's a sequential number for created cells within that row.</li>
+            <li><b>Use absolute grid position for Page Names:</b> When checked, the number in the name (e.g., the '5' in 'C5') corresponds to the grid's absolute column number. When unchecked, it[...]
             <li><b>Labeling starts from:</b> Controls which corner of the grid both the PageNumber and PageName sequences begin from.</li>
             </ul>
             """
