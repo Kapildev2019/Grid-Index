@@ -63,6 +63,55 @@ from qgis.PyQt.QtGui import QIcon
 import os
 
 
+# Compatibility shim: some QGIS versions (and PyQt6) moved enums into nested classes
+# e.g., QgsWkbTypes.Polygon -> QgsWkbTypes.Type.Polygon. To support both styles
+# we create the nested attributes if they don't exist, falling back to older names.
+def _ensure_enum_compatibility():
+    # QgsProcessing.SourceType.*
+    try:
+        _ = QgsProcessing.SourceType
+    except AttributeError:
+        class _SourceType:
+            TypeVector = getattr(QgsProcessing, 'TypeVector', None)
+            TypeRaster = getattr(QgsProcessing, 'TypeRaster', None)
+        QgsProcessing.SourceType = _SourceType
+
+    # QgsProcessingParameterNumber.Type.Integer
+    try:
+        _ = QgsProcessingParameterNumber.Type
+    except AttributeError:
+        class _ParamNumType:
+            Integer = getattr(QgsProcessingParameterNumber, 'Integer', None)
+        QgsProcessingParameterNumber.Type = _ParamNumType
+
+    # QgsUnitTypes.DistanceUnit.DistanceDegrees
+    try:
+        _ = QgsUnitTypes.DistanceUnit
+    except AttributeError:
+        class _DistanceUnit:
+            DistanceDegrees = getattr(QgsUnitTypes, 'DistanceDegrees', None)
+        QgsUnitTypes.DistanceUnit = _DistanceUnit
+
+    # QgsWkbTypes.Type.Polygon
+    try:
+        _ = QgsWkbTypes.Type
+    except AttributeError:
+        class _WkbType:
+            Polygon = getattr(QgsWkbTypes, 'Polygon', None)
+        QgsWkbTypes.Type = _WkbType
+
+    # QgsFeatureSink.Flag.FastInsert
+    try:
+        _ = QgsFeatureSink.Flag
+    except AttributeError:
+        class _Flag:
+            FastInsert = getattr(QgsFeatureSink, 'FastInsert', None)
+        QgsFeatureSink.Flag = _Flag
+
+
+_ensure_enum_compatibility()
+
+
 class gridindexAlgorithm(QgsProcessingAlgorithm):
     """
     This algorithm creates a grid index with advanced labeling and ordering options.
